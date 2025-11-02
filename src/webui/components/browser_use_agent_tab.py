@@ -969,13 +969,97 @@ async def handle_clear(webui_manager: WebuiManager):
 # --- Tab Creation Function ---
 
 
+# (Make sure all your imports from before are still at the top of the file)
+# (e.g., import gradio as gr, from src.webui.webui_manager import WebuiManager, etc.)
+# (DO NOT import numpy or transformers)
+
+
+# ... (all your helper functions like _initialize_llm, _handle_new_step, etc. go here) ...
+
+
+# --- Tab Creation Function ---
+
 def create_browser_use_agent_tab(webui_manager: WebuiManager):
     """
     Create the run agent tab, defining UI, state, and handlers.
     """
     webui_manager.init_browser_use_agent()
 
-    # --- Define UI Components ---
+    # --- 1. NEW: Define the JavaScript for Browser Speech-to-Text ---
+    # This JS function will be attached to our new button.
+    # It finds the button and textbox by their `elem_id`s.
+    js_speech_function = """
+    () => {
+        // --- THIS IS THE UPDATED PART ---
+        // We will try multiple ways to find the elements, just in case
+        // Gradio has rendered them differently.
+
+        // Try to find the button:
+        // 1. A <button> element *inside* an element with id="speech_btn"
+        // 2. A <button> element *with* the id="speech_btn"
+        const btn = document.querySelector("#speech_btn button") || 
+                    document.querySelector("button#speech_btn");
+
+        // Try to find the textbox:
+        // 1. A <textarea> *inside* an element with id="user_input"
+        // 2. A <textarea> *with* the id="user_input"
+        const textarea = document.querySelector("#user_input textarea") || 
+                         document.querySelector("textarea#user_input");
+
+        if (!textarea || !btn) {
+            alert("Error: Could not find UI elements for speech recognition.");
+            return;
+        }
+
+        // 1. Check for browser support
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            alert("Your browser does not support the Web Speech API. Try Chrome or Edge.");
+            return;
+        }
+
+        const recognition = new SpeechRecognition();
+        recognition.interimResults = false;
+        recognition.lang = 'en-US'; // You can change this (e.g., 'es-ES')
+
+        // 2. Update UI during recognition
+        recognition.onstart = () => {
+            btn.textContent = "🎙️ Listening...";
+            btn.disabled = true;
+            textarea.placeholder = "Listening...";
+        };
+
+        recognition.onend = () => {
+            btn.textContent = "🎤 Record Task";
+            btn.disabled = false;
+            textarea.placeholder = "Enter your task, or click 'Record Task' to use voice.";
+        };
+
+        recognition.onerror = (event) => {
+            btn.textContent = "🎤 Record Task";
+            btn.disabled = false;
+            textarea.placeholder = "Error: " + event.error;
+            console.error("Speech recognition error:", event.error);
+        };
+
+        // 3. Handle the result
+        recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript;
+            textarea.value = transcript; // Set the visual value
+            
+            // This is the "magic" part:
+            // We must simulate a user "input" event to make Gradio's
+            // backend state (components dictionary) update.
+            const inputEvent = new Event('input', { bubbles: true });
+            textarea.dispatchEvent(inputEvent);
+        };
+
+        // 4. Start recognition
+        recognition.start();
+    }
+    """
+
+    # --- 2. Define UI Components ---
     tab_components = {}
     with gr.Column():
         chatbot = gr.Chatbot(
@@ -986,13 +1070,24 @@ def create_browser_use_agent_tab(webui_manager: WebuiManager):
             height=600,
             show_copy_button=True,
         )
-        user_input = gr.Textbox(
-            label="Your Task or Response",
-            placeholder="Enter your task here or provide assistance when asked.",
-            lines=3,
-            interactive=True,
-            elem_id="user_input",
-        )
+        
+        # --- NEW: Place button and textbox together ---
+        with gr.Row():
+            user_input = gr.Textbox(
+                label="Your Task or Response",
+                placeholder="Enter your task, or click 'Record Task' to use voice.",
+                lines=3,
+                interactive=True,
+                elem_id="user_input", # Crucial ID for the JS
+                scale=5 # Make textbox bigger
+            )
+            # --- NEW: This is the button ---
+            speech_to_text_button = gr.Button(
+                "🎤 Record Task", 
+                elem_id="speech_btn", # Crucial ID for the JS
+                scale=1
+            )
+
         with gr.Row():
             stop_button = gr.Button(
                 "⏹️ Stop", interactive=False, variant="stop", scale=2
@@ -1021,11 +1116,12 @@ def create_browser_use_agent_tab(webui_manager: WebuiManager):
                 type="filepath",
             )
 
-    # --- Store Components in Manager ---
+    # --- 3. NEW: Store Components in Manager (add the new button) ---
     tab_components.update(
         dict(
             chatbot=chatbot,
             user_input=user_input,
+            speech_to_text_button=speech_to_text_button, # <-- ADDED THIS
             clear_button=clear_button,
             run_button=run_button,
             stop_button=stop_button,
@@ -1044,8 +1140,17 @@ def create_browser_use_agent_tab(webui_manager: WebuiManager):
     )  # Get all components known to manager
     run_tab_outputs = list(tab_components.values())
 
+    # --- 4. NEW: Connect the Speech Button to the JavaScript ---
+    speech_to_text_button.click(
+        fn=None,  # We don't run any Python code
+        inputs=None,
+        outputs=None,
+        js=js_speech_function  # We run this JavaScript code instead
+    )
+
+    # --- Your existing wrapper functions (UNCHANGED) ---
     async def submit_wrapper(
-            components_dict: Dict[Component, Any],
+        components_dict: Dict[Component, Any],
     ) -> AsyncGenerator[Dict[Component, Any], None]:
         """Wrapper for handle_submit that yields its results."""
         async for update in handle_submit(webui_manager, components_dict):
@@ -1065,6 +1170,19 @@ def create_browser_use_agent_tab(webui_manager: WebuiManager):
         """Wrapper for handle_clear."""
         update_dict = await handle_clear(webui_manager)
         yield update_dict
+
+    # --- Your existing Event Handlers (UNCHANGED) ---
+    run_button.click(
+        fn=submit_wrapper, inputs=all_managed_components, outputs=run_tab_outputs, trigger_mode="multiple"
+    )
+    user_input.submit(
+        fn=submit_wrapper, inputs=all_managed_components, outputs=run_tab_outputs
+    )
+    stop_button.click(fn=stop_wrapper, inputs=None, outputs=run_tab_outputs)
+    pause_resume_button.click(
+        fn=pause_resume_wrapper, inputs=None, outputs=run_tab_outputs
+    )
+    clear_button.click(fn=clear_wrapper, inputs=None, outputs=run_tab_outputs)
 
     # --- Connect Event Handlers using the Wrappers --
     run_button.click(
