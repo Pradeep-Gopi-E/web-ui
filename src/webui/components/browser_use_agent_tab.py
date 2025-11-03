@@ -964,101 +964,11 @@ async def handle_clear(webui_manager: WebuiManager):
             interactive=True
         ),
     }
-
-
-# --- Tab Creation Function ---
-
-
-# (Make sure all your imports from before are still at the top of the file)
-# (e.g., import gradio as gr, from src.webui.webui_manager import WebuiManager, etc.)
-# (DO NOT import numpy or transformers)
-
-
-# ... (all your helper functions like _initialize_llm, _handle_new_step, etc. go here) ...
-
-
-# --- Tab Creation Function ---
-
-def create_browser_use_agent_tab(webui_manager: WebuiManager):
+def create_browser_use_agent_tab(webui_manager: WebuiManager, speech_js: str):
     """
     Create the run agent tab, defining UI, state, and handlers.
     """
     webui_manager.init_browser_use_agent()
-
-    # --- 1. NEW: Define the JavaScript for Browser Speech-to-Text ---
-    # This JS function will be attached to our new button.
-    # It finds the button and textbox by their `elem_id`s.
-    js_speech_function = """
-    () => {
-        // --- THIS IS THE UPDATED PART ---
-        // We will try multiple ways to find the elements, just in case
-        // Gradio has rendered them differently.
-
-        // Try to find the button:
-        // 1. A <button> element *inside* an element with id="speech_btn"
-        // 2. A <button> element *with* the id="speech_btn"
-        const btn = document.querySelector("#speech_btn button") || 
-                    document.querySelector("button#speech_btn");
-
-        // Try to find the textbox:
-        // 1. A <textarea> *inside* an element with id="user_input"
-        // 2. A <textarea> *with* the id="user_input"
-        const textarea = document.querySelector("#user_input textarea") || 
-                         document.querySelector("textarea#user_input");
-
-        if (!textarea || !btn) {
-            alert("Error: Could not find UI elements for speech recognition.");
-            return;
-        }
-
-        // 1. Check for browser support
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) {
-            alert("Your browser does not support the Web Speech API. Try Chrome or Edge.");
-            return;
-        }
-
-        const recognition = new SpeechRecognition();
-        recognition.interimResults = false;
-        recognition.lang = 'en-US'; // You can change this (e.g., 'es-ES')
-
-        // 2. Update UI during recognition
-        recognition.onstart = () => {
-            btn.textContent = "🎙️ Listening...";
-            btn.disabled = true;
-            textarea.placeholder = "Listening...";
-        };
-
-        recognition.onend = () => {
-            btn.textContent = "🎤 Record Task";
-            btn.disabled = false;
-            textarea.placeholder = "Enter your task, or click 'Record Task' to use voice.";
-        };
-
-        recognition.onerror = (event) => {
-            btn.textContent = "🎤 Record Task";
-            btn.disabled = false;
-            textarea.placeholder = "Error: " + event.error;
-            console.error("Speech recognition error:", event.error);
-        };
-
-        // 3. Handle the result
-        recognition.onresult = (event) => {
-            const transcript = event.results[0][0].transcript;
-            textarea.value = transcript; // Set the visual value
-            
-            // This is the "magic" part:
-            // We must simulate a user "input" event to make Gradio's
-            // backend state (components dictionary) update.
-            const inputEvent = new Event('input', { bubbles: true });
-            textarea.dispatchEvent(inputEvent);
-        };
-
-        // 4. Start recognition
-        recognition.start();
-    }
-    """
-
     # --- 2. Define UI Components ---
     tab_components = {}
     with gr.Column():
@@ -1075,7 +985,7 @@ def create_browser_use_agent_tab(webui_manager: WebuiManager):
         with gr.Row():
             user_input = gr.Textbox(
                 label="Your Task or Response",
-                placeholder="Enter your task, or click 'Record Task' to use voice.",
+                placeholder="Enter your task, or Speak.",
                 lines=3,
                 interactive=True,
                 elem_id="user_input", # Crucial ID for the JS
@@ -1083,7 +993,7 @@ def create_browser_use_agent_tab(webui_manager: WebuiManager):
             )
             # --- NEW: This is the button ---
             speech_to_text_button = gr.Button(
-                "🎤 Record Task", 
+                "🎙️", 
                 elem_id="speech_btn", # Crucial ID for the JS
                 scale=1
             )
@@ -1145,7 +1055,7 @@ def create_browser_use_agent_tab(webui_manager: WebuiManager):
         fn=None,  # We don't run any Python code
         inputs=None,
         outputs=None,
-        js=js_speech_function  # We run this JavaScript code instead
+        js=speech_js  # We run this JavaScript code instead
     )
 
     # --- Your existing wrapper functions (UNCHANGED) ---
