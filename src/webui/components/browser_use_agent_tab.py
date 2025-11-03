@@ -1081,19 +1081,6 @@ def create_browser_use_agent_tab(webui_manager: WebuiManager, speech_js: str):
         update_dict = await handle_clear(webui_manager)
         yield update_dict
 
-    # --- Your existing Event Handlers (UNCHANGED) ---
-    run_button.click(
-        fn=submit_wrapper, inputs=all_managed_components, outputs=run_tab_outputs, trigger_mode="multiple"
-    )
-    user_input.submit(
-        fn=submit_wrapper, inputs=all_managed_components, outputs=run_tab_outputs
-    )
-    stop_button.click(fn=stop_wrapper, inputs=None, outputs=run_tab_outputs)
-    pause_resume_button.click(
-        fn=pause_resume_wrapper, inputs=None, outputs=run_tab_outputs
-    )
-    clear_button.click(fn=clear_wrapper, inputs=None, outputs=run_tab_outputs)
-
     # --- Connect Event Handlers using the Wrappers --
     run_button.click(
         fn=submit_wrapper, inputs=all_managed_components, outputs=run_tab_outputs, trigger_mode="multiple"
